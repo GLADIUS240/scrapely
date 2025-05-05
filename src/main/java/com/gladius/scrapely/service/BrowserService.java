@@ -1,5 +1,4 @@
 package com.gladius.scrapely.service;
-
 import com.gladius.scrapely.model.ScriptRequset;
 import com.gladius.scrapely.model.SelectorInfo;
 import com.microsoft.playwright.BrowserContext;
@@ -7,7 +6,6 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.options.AriaRole;
-import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -105,49 +103,165 @@ public class BrowserService {
 
     //Returns the list of elements in the JSON Format
     public List<Map<String, Object>> extractSmartSelectors(Page page) {
-        List<Map<String, Object>> elements = (List<Map<String, Object>>) page.locator("button, input, textarea, select, a, [role], [aria-label], label").evaluateAll(
-                "(els) => els.map(e => {\n" +
-                        "  const tag = e.tagName.toLowerCase();\n" +
-                        "  const text = e.innerText || e.value || '';\n" +
-                        "  const label = e.getAttribute('aria-label') || (e.labels && e.labels.length > 0 ? e.labels[0].innerText : '');\n" +
-                        "  const role = e.getAttribute('role') || '';\n" +
-                        "  const id = e.id || '';\n" +
-                        "  const className = typeof e.className === 'string' ? e.className : '';\n" +
-                        "  const placeholder = e.getAttribute('placeholder') || '';\n" +
-                        "  let selectorType = 'css';\n" +
-                        "  let selectorValue = '';\n" +
-                        "\n" +
-                        "  if (label) {\n" +
-                        "    selectorType = 'label';\n" +
-                        "    selectorValue = label;\n" +
-                        "  } else if (role && text) {\n" +
-                        "    selectorType = 'role';\n" +
-                        "    selectorValue = text;\n" +
-                        "  } else if (text) {\n" +
-                        "    selectorType = 'text';\n" +
-                        "    selectorValue = text;\n" +
-                        "  } else if (placeholder) {\n" +
-                        "    selectorType = 'placeholder';\n" +
-                        "    selectorValue = placeholder;\n" +
-                        "  } else if (id) {\n" +
-                        "    selectorValue = `#${id}`;\n" +
+        return (List<Map<String, Object>>) page.locator("button, input, textarea, select, a, [role], [aria-label], label")
+                .evaluateAll("(els) => els.map(e => {\n" +
+                        "  try {\n" +
+                        "    const tag = e.tagName.toLowerCase();\n" +
+                        "    const text = (e.innerText || e.value || '').trim();\n" +
+                        "    const label = (e.getAttribute('aria-label') || (e.labels?.[0]?.innerText || '')).trim();\n" +
+                        "    const role = e.getAttribute('role') || '';\n" +
+                        "    const id = e.id || '';\n" +
+                        "    const className = typeof e.className === 'string' ? e.className.trim() : '';\n" +
+                        "    const placeholder = (e.getAttribute('placeholder') || '').trim();\n" +
+                        "    const name = (e.getAttribute('name') || '').trim();\n" +
+                        "    const title = (e.getAttribute('title') || '').trim();\n" +
+                        "    const visible = !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);\n" +
+
+                        "    let selectorType = 'css';\n" +
+                        "    let selectorValue = '';\n" +
+
+                        "    if (label) {\n" +
+                        "      selectorType = 'label';\n" +
+                        "      selectorValue = label;\n" +
+                        "    } else if (role && text) {\n" +
+                        "      selectorType = 'role';\n" +
+                        "      selectorValue = text;\n" +
+                        "    } else if (text) {\n" +
+                        "      selectorType = 'text';\n" +
+                        "      selectorValue = text;\n" +
+                        "    } else if (placeholder) {\n" +
+                        "      selectorType = 'placeholder';\n" +
+                        "      selectorValue = placeholder;\n" +
+                        "    } else if (id) {\n" +
+                        "      selectorValue = `#${id}`;\n" +
+                        "    } else if (name) {\n" +
+                        "      selectorValue = `[name='${name}']`;\n" +
+                        "    } else if (title) {\n" +
+                        "      selectorValue = `[title='${title}']`;\n" +
+                        "    }\n" +
+
+                        "    return {\n" +
+                        "      tag,\n" +
+                        "      text,\n" +
+                        "      label,\n" +
+                        "      role,\n" +
+                        "      id,\n" +
+                        "      class: className,\n" +
+                        "      name,\n" +
+                        "      title,\n" +
+                        "      placeholder,\n" +
+                        "      visible,\n" +
+                        "      suggestedSelectorType: selectorType,\n" +
+                        "      selector: selectorValue\n" +
+                        "    };\n" +
+                        "  } catch (err) {\n" +
+                        "    return { error: err.message || 'Unknown error during selector extraction' };\n" +
                         "  }\n" +
-                        "\n" +
-                        "  return {\n" +
-                        "    tag,\n" +
-                        "    text,\n" +
-                        "    label,\n" +
-                        "    role,\n" +
-                        "    id,\n" +
-                        "    class: className,\n" +
-                        "    placeholder,\n" +
-                        "    suggestedSelectorType: selectorType,\n" +
-                        "    selector: selectorValue\n" +
-                        "  };\n" +
                         "})"
-        );
-        return (List<Map<String, Object>>) elements;
+                );
     }
+
+
+    public List<Map<String, Object>> extractAllSelectorsWithShadowSupport(Page page) {
+        return (List<Map<String, Object>>) page.evaluate(
+"(() => {\n" +
+        "  function extractElements(root) {\n" +
+        "    const elements = [];\n" +
+        "    function traverse(node) {\n" +
+        "      const treeWalker = document.createTreeWalker(\n" +
+        "        node,\n" +
+        "        NodeFilter.SHOW_ELEMENT,\n" +
+        "        null,\n" +
+        "        false\n" +
+        "      );\n" +
+        "      let currentNode = treeWalker.currentNode;\n" +
+        "      while (currentNode) {\n" +
+        "        elements.push(currentNode);\n" +
+        "        if (currentNode.shadowRoot) {\n" +
+        "          traverse(currentNode.shadowRoot);\n" +
+        "        }\n" +
+        "        currentNode = treeWalker.nextNode();\n" +
+        "      }\n" +
+        "    }\n" +
+        "    traverse(root);\n" +
+        "    return elements;\n" +
+        "  }\n" +
+        "\n" +
+        "  const allElements = extractElements(document);\n" +
+        "\n" +
+        "  function getSuggestedAction(tag) {\n" +
+        "    const fillTags = ['input', 'textarea'];\n" +
+        "    const clickTags = ['button', 'a', 'input', 'summary'];\n" +
+        "    const selectTags = ['select'];\n" +
+        "\n" +
+        "    if (fillTags.includes(tag)) return 'fill';\n" +
+        "    if (selectTags.includes(tag)) return 'select';\n" +
+        "    if (clickTags.includes(tag)) return 'click';\n" +
+        "    return 'click';\n" +
+        "  }\n" +
+        "\n" +
+        "  return allElements.map(e => {\n" +
+        "    if (!(e instanceof Element)) return null;\n" +
+        "\n" +
+        "    const tag = e.tagName.toLowerCase();\n" +
+        "    const text = e.innerText?.trim() || e.value || '';\n" +
+        "    const label = e.getAttribute('aria-label') || (e.labels && e.labels.length > 0 ? e.labels[0].innerText.trim() : '');\n" +
+        "    const role = e.getAttribute('role') || '';\n" +
+        "    const id = e.id || '';\n" +
+        "    const className = typeof e.className === 'string' ? e.className.trim().replace(/\\s+/g, '.') : '';\n" +
+        "    const placeholder = e.getAttribute('placeholder') || '';\n" +
+        "    const type = e.getAttribute('type') || '';\n" +
+        "\n" +
+        "    let selector = '';\n" +
+        "    let selectorType = '';\n" +
+        "    let selectorCode = '';\n" +
+        "\n" +
+        "    if (role && text) {\n" +
+        "      selectorType = 'getByRole';\n" +
+        "      selector = role;\n" +
+        "      selectorCode = `getByRole('${role}', { name: '${text}' })`;\n" +
+        "    } else if (label) {\n" +
+        "      selectorType = 'getByLabel';\n" +
+        "      selector = label;\n" +
+        "      selectorCode = `getByLabel('${label}')`;\n" +
+        "    } else if (text) {\n" +
+        "      selectorType = 'getByText';\n" +
+        "      selector = text;\n" +
+        "      selectorCode = `getByText('${text}', { exact: true })`;\n" +
+        "    } else if (placeholder) {\n" +
+        "      selectorType = 'placeholder';\n" +
+        "      selector = placeholder;\n" +
+        "      selectorCode = `locator('input[placeholder=\"${placeholder}\"]')`;\n" +
+        "    } else if (id) {\n" +
+        "      selectorType = 'css';\n" +
+        "      selector = `#${id}`;\n" +
+        "      selectorCode = `locator('${selector}')`;\n" +
+        "    } else {\n" +
+        "      selectorType = 'css';\n" +
+        "      selector = tag + (className ? '.' + className : '');\n" +
+        "      selectorCode = `locator('${selector}')`;\n" +
+        "    }\n" +
+        "\n" +
+        "    return {\n" +
+        "      tag,\n" +
+        "      type,\n" +
+        "      text,\n" +
+        "      label,\n" +
+        "      role,\n" +
+        "      id,\n" +
+        "      class: className,\n" +
+        "      placeholder,\n" +
+        "      suggestedSelectorType: selectorType,\n" +
+        "      selectorValue: selector,\n" +
+        "      playwrightSelector: selectorCode,\n" +
+        "      suggestedAction: getSuggestedAction(tag)\n" +
+        "    };\n" +
+        "  }).filter(e => e !== null && e.suggestedSelectorType !== '');\n" +
+        "})();\n"
+
+        );
+    }
+
 
 
     //opens the url and returns the page html
@@ -163,7 +277,10 @@ public class BrowserService {
 
             page.navigate(url, options);
 
-            result.put("smartSelectors", extractSmartSelectors(page));
+            result.put("smartSelectors", extractAllSelectorsWithShadowSupport(page));
+            String link= (String) page.evaluate("const links = document.links" +"\n" +
+                    "return links");
+            result.put("links",link);
         } catch (Exception e) {
             log.error("Error in playwrightv2", e);
         } finally {
